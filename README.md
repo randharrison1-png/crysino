@@ -28,7 +28,7 @@ pnpm test         # run all tests
 
 - [x] **Step 1 — Foundation:** monorepo, schema, double-entry ledger
 - [x] **Step 2 — Provably fair seeds:** shared RNG (runs in browser too), encrypted seed pairs, nonce, rotate & reveal
-- [ ] Step 3 — Game engine + Dice 100 and Doomsday
+- [x] **Step 3 — Game engine:** atomic bets, versioned configs, limits, payout cap; Dice 100 and Doomsday
 - [ ] Step 4 — Player API (auth, bets, WebSocket)
 - [ ] Step 5 — Remaining instant games
 - [ ] Step 6 — Wallet service (testnets first)
@@ -36,6 +36,18 @@ pnpm test         # run all tests
 - [ ] Step 8 — Player website
 - [ ] Step 9 — Neon 21 (blackjack)
 - [ ] Step 10 — Compliance integrations, hardening, audits
+
+## Checking the game maths
+
+```bash
+pnpm --filter @crysino/shared simulate 5000000   # plays 5M rounds per scenario through the real code
+```
+
+## Known scaling item
+
+Every bet updates the house bankroll row, so bets across all players queue on that one row.
+Fine for launch volumes; if it ever becomes a bottleneck, split the bankroll into several
+sub-accounts per asset and spread bets across them.
 
 ## Money rules
 
