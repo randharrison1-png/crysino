@@ -1,0 +1,21 @@
+# Local development databases. Run: pnpm db:up
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: crysino
+      POSTGRES_PASSWORD: crysino
+      POSTGRES_DB: crysino
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
