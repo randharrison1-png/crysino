@@ -203,7 +203,7 @@ describe("bet checks — a refused bet leaves no trace", () => {
     } finally {
       await db.query("UPDATE games SET maintenance = false WHERE code = 'dice'");
     }
-    await expectBetError(engine.placeInstantBet(diceBet(u, { game: "last_door" })), "game_unavailable");
+    await expectBetError(engine.placeInstantBet(diceBet(u, { game: "neon21" })), "game_unavailable");
     await expectBetError(engine.placeInstantBet(diceBet(u, { game: "nope" })), "game_unavailable");
     await assertNoTrace(u, 10_000_000n);
   });

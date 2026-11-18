@@ -6,7 +6,10 @@ import type { RoundView } from "../games/engine.js";
  * pub/sub (same interface), so every server's WebSocket clients see every bet.
  */
 export interface BusEvents {
+  /** A round finished (any game). Feeds the public live-bets ticker. */
   round_settled: { userId: string; round: RoundView; balance: bigint };
+  /** An open multi-step round moved on (owner only). */
+  round_updated: { userId: string; round: RoundView; balance: bigint };
 }
 
 export class EventBus {

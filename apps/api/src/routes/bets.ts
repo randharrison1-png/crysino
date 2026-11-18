@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { regionPermitsPlay } from "../compliance/regions.js";
 import { ApiError } from "../http/errors.js";
@@ -19,6 +19,40 @@ const historyQuery = z.object({
 
 const uuid = z.string().uuid();
 
+const actionBody = z.object({
+  action: z.unknown(),
+  /** The round's current step, from the last response. Stops double-clicks applying twice. */
+  step: z.number().int().min(0),
+});
+
+/** Region is checked on every bet, not just at login: people travel and VPNs switch. */
+async function assertCanPlay(app: FastifyInstance, req: FastifyRequest, game: string, asset: string) {
+  const region = await app.regionOf(req);
+  if (!regionPermitsPlay(region, req.user!.kycTier)) {
+    throw new ApiError(
+      451,
+      region.policy === "kyc_required" ? "kyc_required" : "region_blocked",
+      region.policy === "kyc_required"
+        ? "Verify your identity to play from your region"
+        : "Betting is not available in your region",
+    );
+  }
+  if (region.gamesAllowed && !region.gamesAllowed.includes(game)) {
+    throw new ApiError(451, "game_not_in_region", "This game is not available in your region");
+  }
+  if (region.assetsAllowed && !region.assetsAllowed.includes(asset)) {
+    throw new ApiError(451, "asset_not_in_region", "This currency is not available in your region");
+  }
+}
+
+function idempotencyKeyOf(req: FastifyRequest): string {
+  const key = req.headers["idempotency-key"];
+  if (typeof key !== "string" || !/^[\w-]{8,128}$/.test(key)) {
+    throw new ApiError(400, "idempotency_key_required", "Send a unique Idempotency-Key header with each bet");
+  }
+  return key;
+}
+
 export async function betRoutes(app: FastifyInstance) {
   const { db, engine, bus } = app.deps;
   const auth = { preHandler: app.requireUser };
@@ -33,29 +67,9 @@ export async function betRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const body = betBody.parse(req.body);
-      const idempotencyKey = req.headers["idempotency-key"];
-      if (typeof idempotencyKey !== "string" || !/^[\w-]{8,128}$/.test(idempotencyKey)) {
-        throw new ApiError(400, "idempotency_key_required", "Send a unique Idempotency-Key header with each bet");
-      }
+      const idempotencyKey = idempotencyKeyOf(req);
 
-      // Region is checked on every bet, not just at login: people travel and VPNs switch.
-      const region = await app.regionOf(req);
-      if (!regionPermitsPlay(region, req.user!.kycTier)) {
-        throw new ApiError(
-          451,
-          region.policy === "kyc_required" ? "kyc_required" : "region_blocked",
-          region.policy === "kyc_required"
-            ? "Verify your identity to play from your region"
-            : "Betting is not available in your region",
-        );
-      }
-      if (region.gamesAllowed && !region.gamesAllowed.includes(body.game)) {
-        throw new ApiError(451, "game_not_in_region", "This game is not available in your region");
-      }
-      if (region.assetsAllowed && !region.assetsAllowed.includes(body.asset)) {
-        throw new ApiError(451, "asset_not_in_region", "This currency is not available in your region");
-      }
-
+      await assertCanPlay(app, req, body.game, body.asset);
       const result = await engine.placeInstantBet({
         userId: req.user!.userId,
         game: body.game,
@@ -70,6 +84,44 @@ export async function betRoutes(app: FastifyInstance) {
       return { round: result.round, balance: result.balance, replayed: result.replayed };
     },
   );
+
+  // ── Multi-step games ──
+  const playLimit = {
+    preHandler: app.requireUser,
+    config: { rateLimit: { max: 60, timeWindow: "10 seconds", keyGenerator: (req: FastifyRequest) => req.user?.userId ?? req.ip } },
+  };
+
+  /** Start a Freefall / Flap Fortune / Gem Grid round. */
+  app.post("/rounds", playLimit, async (req) => {
+    const body = betBody.parse(req.body);
+    const idempotencyKey = idempotencyKeyOf(req);
+    await assertCanPlay(app, req, body.game, body.asset);
+    const result = await engine.startRound({
+      userId: req.user!.userId,
+      game: body.game,
+      asset: body.asset,
+      stake: BigInt(body.stake),
+      params: body.params,
+      idempotencyKey,
+    });
+    if (!result.replayed) bus.emit("round_updated", { userId: req.user!.userId, round: result.round, balance: result.balance });
+    return result;
+  });
+
+  /** Advance / reveal / cash out. Allowed from anywhere once started, so a player can always cash out. */
+  app.post<{ Params: { id: string } }>("/rounds/:id/actions", playLimit, async (req) => {
+    const id = uuid.parse(req.params.id);
+    const body = actionBody.parse(req.body);
+    const result = await engine.act(req.user!.userId, id, body.action, body.step);
+    bus.emit(result.settled ? "round_settled" : "round_updated", {
+      userId: req.user!.userId,
+      round: result.round,
+      balance: result.balance,
+    });
+    return result;
+  });
+
+  app.get("/rounds/active", auth, async (req) => ({ rounds: await engine.listOpenRounds(req.user!.userId) }));
 
   app.get("/rounds", auth, async (req) => {
     const q = historyQuery.parse(req.query);

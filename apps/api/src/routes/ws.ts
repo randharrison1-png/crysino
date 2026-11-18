@@ -44,6 +44,15 @@ export async function wsRoutes(app: FastifyInstance) {
     }
   });
 
+  bus.on("round_updated", ({ userId, round, balance }) => {
+    for (const client of sockets) {
+      if (client.userId === userId) {
+        send(client.socket, { type: "round", round });
+        send(client.socket, { type: "balance", asset: round.asset, balance });
+      }
+    }
+  });
+
   app.get("/ws", { websocket: true }, (socket, req) => {
     // Browsers always send Origin on WebSocket upgrades; refuse other sites (cross-site hijacking).
     if (!req.headers.origin || !config.webOrigins.includes(req.headers.origin)) {

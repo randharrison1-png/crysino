@@ -26,6 +26,10 @@ const BET_STATUS: Record<BetErrorCode, number> = {
   invalid_params: 422,
   insufficient_funds: 422,
   idempotency_conflict: 409,
+  round_already_open: 409,
+  round_not_found: 404,
+  round_closed: 409,
+  stale_step: 409,
 };
 
 export function errorHandler(err: FastifyError | Error, req: FastifyRequest, reply: FastifyReply) {

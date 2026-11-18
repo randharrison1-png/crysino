@@ -39,6 +39,9 @@ New databases block every country by default. For local play, allow your DEV_COU
 | POST | /me/2fa/setup · /me/2fa/enable · /me/2fa/disable | |
 | GET | /games · /assets | public |
 | POST | /bets | game, asset, stake (base units, string), params + `Idempotency-Key` header |
+| POST | /rounds | start a multi-step round (Freefall, Flap Fortune, Gem Grid) + `Idempotency-Key` |
+| POST | /rounds/:id/actions | `{ action, step }` — advance / reveal / cashout; `step` from the last response |
+| GET | /rounds/active | unfinished rounds, to restore after a reload |
 | GET | /rounds · /rounds/:id · /rounds/:id/verify | |
 | GET / POST | /fairness · /fairness/rotate | |
 | WS | /ws | live_bet, big_win (public); round, balance (signed in) |
@@ -52,7 +55,7 @@ Every POST must come from an origin in `WEB_ORIGINS` (CSRF protection).
 - [x] **Step 2 — Provably fair seeds:** shared RNG (runs in browser too), encrypted seed pairs, nonce, rotate & reveal
 - [x] **Step 3 — Game engine:** atomic bets, versioned configs, limits, payout cap; Dice 100 and Doomsday
 - [x] **Step 4 — Player API:** sign-up/login, 2FA, sessions, region gate, bets, history, fairness, live WebSocket
-- [ ] Step 5 — Remaining instant games
+- [x] **Step 5 — Four more games:** The Last Door; Freefall, Flap Fortune, Gem Grid with open rounds, cash-out, auto cash-out at max payout, idle-round settlement
 - [ ] Step 6 — Wallet service (testnets first)
 - [ ] Step 7 — Admin API + dashboard (treasury, regions, games)
 - [ ] Step 8 — Player website
@@ -64,6 +67,11 @@ Every POST must come from an origin in `WEB_ORIGINS` (CSRF protection).
 ```bash
 pnpm --filter @crysino/shared simulate 5000000   # plays 5M rounds per scenario through the real code
 ```
+
+## Scheduled job (to wire up in deployment)
+
+`engine.resolveIdleRounds(24h)` settles rounds left open for a day: cash-out at the current
+multiplier, or a refund if no step was cleared. Run it every few minutes.
 
 ## Known scaling item
 

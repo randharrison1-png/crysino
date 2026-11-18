@@ -24,10 +24,11 @@ beforeAll(async () => {
       ('JP', NULL, 'allow', 21, '{dice}')
     ON CONFLICT DO NOTHING`);
   await db.query("UPDATE assets SET enabled = true WHERE code = 'BTC'");
-  await db.query("UPDATE games SET enabled = true WHERE code IN ('dice', 'doomsday')");
+  await db.query("UPDATE games SET enabled = true WHERE code IN ('dice', 'doomsday', 'gem_grid', 'last_door')");
   await db.query(
     `INSERT INTO game_limits (game, asset, min_bet, max_bet, max_payout) VALUES
-       ('dice', 'BTC', 100, 1000000, 50000000), ('doomsday', 'BTC', 100, 1000000, 50000000)
+       ('dice', 'BTC', 100, 1000000, 50000000), ('doomsday', 'BTC', 100, 1000000, 50000000),
+       ('gem_grid', 'BTC', 100, 1000000, 50000000), ('last_door', 'BTC', 100, 1000000, 50000000)
      ON CONFLICT DO NOTHING`,
   );
 });
@@ -317,6 +318,48 @@ describe("history, verification and fairness", () => {
       expect(JSON.stringify(payload)).not.toContain(secret);
       expect(JSON.stringify(payload)).not.toMatch(/"serverSeed"/);
     }
+  });
+});
+
+describe("multi-step rounds over HTTP", () => {
+  it("start → restore after reload → reveal → stale step refused → cash out", async () => {
+    const { client, userId } = await signUp(app);
+    await fund(db, userId, 100_000n);
+    const started = await client.post("/rounds", { game: "gem_grid", asset: "BTC", stake: "1000", params: { mines: 3 } }, { "idempotency-key": randomUUID() });
+    expect(started.status).toBe(200);
+    expect(started.body.round).toMatchObject({ status: "open", step: 0, stake: "1000" });
+    expect(started.body.round.result.minePositions).toBeNull();
+
+    const active = await client.get("/rounds/active");
+    expect(active.body.rounds.map((r: { id: string }) => r.id)).toEqual([started.body.round.id]);
+
+    const id = started.body.round.id;
+    const { rows } = await db.query("SELECT state FROM rounds WHERE id = $1", [id]);
+    const tile = [...Array(25).keys()].find((t) => !rows[0].state.mines.includes(t));
+
+    const step1 = await client.post(`/rounds/${id}/actions`, { action: { type: "reveal", tile }, step: 0 });
+    expect(step1.body.round.step).toBe(1);
+    const stale = await client.post(`/rounds/${id}/actions`, { action: { type: "cashout" }, step: 0 });
+    expect([stale.status, stale.body.error.code]).toEqual([409, "stale_step"]);
+    const cash = await client.post(`/rounds/${id}/actions`, { action: { type: "cashout" }, step: 1 });
+    expect(cash.body).toMatchObject({ settled: true, round: { status: "cashed_out", payout: "1090" } });
+    expect((await client.get("/rounds/active")).body.rounds).toEqual([]);
+  });
+
+  it("instant games can't be started as rounds, and vice versa", async () => {
+    const { client, userId } = await signUp(app);
+    await fund(db, userId, 100_000n);
+    const a = await client.post("/rounds", { game: "dice", asset: "BTC", stake: "1000" }, { "idempotency-key": randomUUID() });
+    const b = await client.bet({ game: "gem_grid", asset: "BTC", stake: "1000" });
+    expect([a.body.error.code, b.body.error.code]).toEqual(["game_unavailable", "game_unavailable"]);
+  });
+
+  it("starting a round is region-checked", async () => {
+    const { client, userId } = await signUp(app);
+    await fund(db, userId, 100_000n);
+    client.country = "US";
+    const res = await client.post("/rounds", { game: "gem_grid", asset: "BTC", stake: "1000" }, { "idempotency-key": randomUUID() });
+    expect(res.status).toBe(451);
   });
 });
 
