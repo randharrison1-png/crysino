@@ -27,7 +27,7 @@ pnpm test         # run all tests
 ## Build progress
 
 - [x] **Step 1 — Foundation:** monorepo, schema, double-entry ledger
-- [ ] Step 2 — Provably fair seed service
+- [x] **Step 2 — Provably fair seeds:** shared RNG (runs in browser too), encrypted seed pairs, nonce, rotate & reveal
 - [ ] Step 3 — Game engine + Dice 100 and Doomsday
 - [ ] Step 4 — Player API (auth, bets, WebSocket)
 - [ ] Step 5 — Remaining instant games
