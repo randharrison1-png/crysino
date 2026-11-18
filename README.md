@@ -22,14 +22,36 @@ pnpm install
 pnpm db:up        # Postgres + Redis in Docker
 pnpm migrate      # create tables
 pnpm test         # run all tests
+pnpm --filter @crysino/api dev   # API on http://localhost:4000
 ```
+
+New databases block every country by default. For local play, allow your DEV_COUNTRY:
+`INSERT INTO region_rules (country_code, policy) VALUES ('MT', 'allow');`
+
+## Player API
+
+| Method | Path | |
+|---|---|---|
+| POST | /auth/register | email, password, dateOfBirth, acceptTerms |
+| POST | /auth/login | email, password, totp (if 2FA on) |
+| POST | /auth/logout | |
+| GET | /me · /balances | |
+| POST | /me/2fa/setup · /me/2fa/enable · /me/2fa/disable | |
+| GET | /games · /assets | public |
+| POST | /bets | game, asset, stake (base units, string), params + `Idempotency-Key` header |
+| GET | /rounds · /rounds/:id · /rounds/:id/verify | |
+| GET / POST | /fairness · /fairness/rotate | |
+| WS | /ws | live_bet, big_win (public); round, balance (signed in) |
+
+Amounts are always strings of base units. Errors are `{ error: { code, message, details? } }`.
+Every POST must come from an origin in `WEB_ORIGINS` (CSRF protection).
 
 ## Build progress
 
 - [x] **Step 1 — Foundation:** monorepo, schema, double-entry ledger
 - [x] **Step 2 — Provably fair seeds:** shared RNG (runs in browser too), encrypted seed pairs, nonce, rotate & reveal
 - [x] **Step 3 — Game engine:** atomic bets, versioned configs, limits, payout cap; Dice 100 and Doomsday
-- [ ] Step 4 — Player API (auth, bets, WebSocket)
+- [x] **Step 4 — Player API:** sign-up/login, 2FA, sessions, region gate, bets, history, fairness, live WebSocket
 - [ ] Step 5 — Remaining instant games
 - [ ] Step 6 — Wallet service (testnets first)
 - [ ] Step 7 — Admin API + dashboard (treasury, regions, games)
